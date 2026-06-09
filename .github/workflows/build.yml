@@ -16,7 +16,7 @@ jobs:
     runs-on: macos-26
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Show toolchain
         run: |
@@ -59,7 +59,7 @@ jobs:
         run: ditto -c -k --keepParent build/MacSanity.app "build/MacSanity-${GITHUB_REF_NAME}.zip"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: MacSanity-${{ github.ref_name }}
           path: build/MacSanity-*.zip
