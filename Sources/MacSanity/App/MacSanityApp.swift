@@ -15,9 +15,5 @@ struct MacSanityApp: App {
             Image(systemName: model.menuBarSymbolName)
         }
         .menuBarExtraStyle(.menu)
-
-        Settings {
-            SettingsView(model: model)
-        }
     }
 }

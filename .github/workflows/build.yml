@@ -6,7 +6,7 @@ name: Build
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v*'
 
 permissions:
   contents: write   # needed to create the GitHub Release
@@ -28,6 +28,8 @@ jobs:
 
       - name: Build app bundle
         run: ./Scripts/build-app.sh release
+        env:
+          MACSANITY_VERSION: ${{ github.ref_name }}
 
       - name: Package
         run: ditto -c -k --keepParent build/MacSanity.app "build/MacSanity-${GITHUB_REF_NAME}.zip"

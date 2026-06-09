@@ -4,10 +4,10 @@ public enum ScrollSource: Equatable, Sendable {
     case trackpad
 }
 
-/// Decides whether a scroll event is from a mouse or a trackpad, using the same
-/// proven heuristic as the legacy app. Pure and side-effect-free, so it is unit
-/// tested without any hardware or permissions. Lives in its own library target
-/// precisely so the tests never have to link the GUI app.
+/// Decides whether a scroll event is from a mouse or a trackpad. Pure and
+/// side-effect-free, so it is unit tested without any hardware or permissions.
+/// Lives in its own library target precisely so the tests never have to link the
+/// GUI app.
 public enum ScrollClassifier {
     /// Two-plus fingers count as "trackpad" only if seen this recently (ns).
     public static let touchRecencyNs: UInt64 = 222_000_000          // 222 ms

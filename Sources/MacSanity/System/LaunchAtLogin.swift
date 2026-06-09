@@ -10,17 +10,6 @@ enum LaunchAtLogin {
         SMAppService.mainApp.status == .enabled
     }
 
-    /// Human-readable current status (useful for diagnostics).
-    static var statusDescription: String {
-        switch SMAppService.mainApp.status {
-        case .notRegistered: return "notRegistered"
-        case .enabled: return "enabled"
-        case .requiresApproval: return "requiresApproval"
-        case .notFound: return "notFound"
-        @unknown default: return "unknown"
-        }
-    }
-
     /// Register or unregister the main app as a login item. Idempotent and
     /// failure-tolerant — a thrown error is logged, not propagated, so a flaky
     /// toggle never crashes the app.

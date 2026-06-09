@@ -51,8 +51,6 @@ void MSReverseScroll(CGEventRef event, bool reverseVertical, bool reverseHorizon
             IOHIDEventSetFloatValue(hid, kMSScrollFieldY, -y);
         }
         if (reverseHorizontal) {
-            // Uses the horizontal field — the legacy app had a bug here, flipping
-            // X by the vertical multiplier.
             IOHIDFloat x = IOHIDEventGetFloatValue(hid, kMSScrollFieldX);
             IOHIDEventSetFloatValue(hid, kMSScrollFieldX, -x);
         }

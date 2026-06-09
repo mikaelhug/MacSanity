@@ -5,21 +5,20 @@ import IOKit.pwr_mgt
 /// How long Keep Awake should stay on.
 enum KeepAwakeDuration: Hashable {
     case indefinite
-    case minutes(Int)
+    case interval(Int)   // total seconds
 
     /// Number of seconds, or nil for indefinite.
     var seconds: TimeInterval? {
         switch self {
         case .indefinite: return nil
-        case .minutes(let m): return TimeInterval(m) * 60
+        case .interval(let s): return TimeInterval(s)
         }
     }
 }
 
 /// Prevents the display (and therefore the system) from idle-sleeping by holding
 /// a single IOKit power assertion. A held assertion needs no renewal timer — it
-/// stays in effect until released, so this is far simpler than the legacy app's
-/// 10-second re-assert loop.
+/// stays in effect until released.
 @MainActor
 final class KeepAwakeController {
     private var assertionID: IOPMAssertionID = IOPMAssertionID(0)
@@ -27,9 +26,6 @@ final class KeepAwakeController {
     private var expiryTask: Task<Void, Never>?
 
     private static let assertionReason = "MacSanity is keeping your Mac awake" as CFString
-
-    /// True while a power assertion is held.
-    var isActive: Bool { hasAssertion }
 
     /// Hold the assertion until explicitly disabled.
     func enable() {

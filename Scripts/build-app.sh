@@ -36,6 +36,17 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+[[ -f "$ROOT/Resources/AppIcon.icns" ]] && cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+
+# Stamp the version from $MACSANITY_VERSION (CI passes the git tag) so the bundle
+# reports its real version and "Check for Updates" compares correctly. Falls back
+# to the latest local git tag, else leaves the Info.plist default.
+VERSION="${MACSANITY_VERSION:-$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)}"
+VERSION="${VERSION#v}"
+if [[ -n "$VERSION" ]]; then
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
+	echo "==> Version $VERSION"
+fi
 
 echo "==> Code signing (ad-hoc)"
 codesign --force --sign - \

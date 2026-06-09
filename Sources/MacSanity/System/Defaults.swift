@@ -6,27 +6,20 @@ import Foundation
 /// rather than duplicated here.
 enum Defaults {
     private enum Key {
-        static let reverseEnabled = "reverseEnabled"
         static let reverseMouse = "reverseMouse"
         static let reverseTrackpad = "reverseTrackpad"
         static let hideIcon = "hideIcon"
     }
 
-    /// Seed the factory defaults: scroll reversal off until the user opts in,
-    /// and — when they do — mice reverse while the trackpad stays natural.
+    /// Seed the factory defaults: both reverse toggles off until the user opts in.
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
-            Key.reverseEnabled: false,
-            Key.reverseMouse: true,
+            Key.reverseMouse: false,
             Key.reverseTrackpad: false,
             Key.hideIcon: false,
         ])
     }
 
-    static var reverseEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: Key.reverseEnabled) }
-        set { UserDefaults.standard.set(newValue, forKey: Key.reverseEnabled) }
-    }
     static var reverseMouse: Bool {
         get { UserDefaults.standard.bool(forKey: Key.reverseMouse) }
         set { UserDefaults.standard.set(newValue, forKey: Key.reverseMouse) }

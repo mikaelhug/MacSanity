@@ -1,11 +1,10 @@
-import SwiftUI
 import AppKit
 import Observation
 
 /// The single source of truth for the whole app and the only writer of side
 /// effects. SwiftUI scenes read it; feature controllers are owned and driven by
 /// it. Everything here runs on the main actor — the menu UI, the IOKit power
-/// assertion, and (later) the event-tap run loop all live on the main thread.
+/// assertion, and the event-tap run loop all live on the main thread.
 @MainActor
 @Observable
 final class AppModel {
@@ -17,11 +16,18 @@ final class AppModel {
     private(set) var isKeepingAwake = false
     /// Which preset is active (for menu checkmarks), or nil when off.
     private(set) var keepAwakeDuration: KeepAwakeDuration?
+    /// When a timed Keep Awake will end (nil when indefinite or off). Internal —
+    /// the menu reads `keepAwakeRemainingMinutes`, not this.
+    @ObservationIgnored private var keepAwakeExpiry: Date?
+    /// Whole minutes left on a timed Keep Awake, shown in the menu (nil otherwise).
+    private(set) var keepAwakeRemainingMinutes: Int?
+    @ObservationIgnored private var countdownTask: Task<Void, Never>?
 
-    // MARK: Scroll reversal (persisted)
-    private(set) var reverseEnabled = false
-    private(set) var reverseMouse = true
+    // MARK: Scroll reversal (persisted) — two independent toggles, no master switch.
+    private(set) var reverseMouse = false
     private(set) var reverseTrackpad = false
+    /// The tap should run when either source is being reversed.
+    var anyReverseEnabled: Bool { reverseMouse || reverseTrackpad }
 
     // MARK: System
     /// Mirrors `SMAppService` state; the OS is the source of truth.
@@ -34,10 +40,11 @@ final class AppModel {
     // MARK: Controllers
     private let keepAwake = KeepAwakeController()
     private let scrollTap = ScrollTap()
-    let permissions = PermissionsManager()
+    private let updateChecker = UpdateChecker()
+    private let permissions = PermissionsManager()
 
-    /// Both TCC permissions present — the precondition for running the scroll tap.
-    var permissionsOK: Bool { permissions.allGranted }
+    /// Accessibility granted — the precondition for running the scroll tap.
+    var permissionsOK: Bool { permissions.accessibilityGranted }
 
     private init() {}
 
@@ -49,7 +56,6 @@ final class AppModel {
         NSApp.setActivationPolicy(.accessory)
 
         Defaults.registerDefaults()
-        reverseEnabled = Defaults.reverseEnabled
         reverseMouse = Defaults.reverseMouse
         reverseTrackpad = Defaults.reverseTrackpad
         hideIcon = Defaults.hideIcon
@@ -60,17 +66,27 @@ final class AppModel {
         permissions.onChange = { [weak self] in self?.updateScrollTapRunning() }
         permissions.refresh()
 
-        // Rebuild the (potentially dead) taps after the Mac wakes from sleep,
-        // rather than relaunching the whole app like the legacy version did.
+        // Rebuild the (potentially dead) taps after the Mac wakes from sleep.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleWake() }
         }
 
-        // If reversal was left on from a previous session, resume monitoring and
-        // (if permitted) start the tap immediately.
-        if reverseEnabled { permissions.startMonitoring() }
+        // TCC has no change notification, so instead of a standing timer we
+        // re-check permissions exactly when the menu opens — the only moment a
+        // stale value is visible. Catches a runtime revocation (menu then offers
+        // "Grant Scroll Permissions…") and a late grant (tap starts), at zero
+        // idle cost.
+        NotificationCenter.default.addObserver(
+            forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.permissions.refresh() }
+        }
+
+        // If reversal was left on from a previous session, watch for a grant only
+        // if one is still pending; otherwise the tap just starts immediately.
+        if anyReverseEnabled && !permissions.accessibilityGranted { permissions.startMonitoring() }
         applyScrollConfig()
     }
 
@@ -80,10 +96,15 @@ final class AppModel {
         keepAwakeDuration = duration
         isKeepingAwake = true
         if let seconds = duration.seconds {
+            keepAwakeExpiry = Date().addingTimeInterval(seconds)
+            startCountdown()
             keepAwake.enable(forDuration: seconds) { [weak self] in
                 self?.syncKeepAwakeOff()
             }
         } else {
+            keepAwakeExpiry = nil
+            keepAwakeRemainingMinutes = nil
+            stopCountdown()
             keepAwake.enable()
         }
     }
@@ -100,36 +121,96 @@ final class AppModel {
     private func syncKeepAwakeOff() {
         isKeepingAwake = false
         keepAwakeDuration = nil
+        keepAwakeExpiry = nil
+        keepAwakeRemainingMinutes = nil
+        stopCountdown()
     }
 
-    // MARK: Scroll intent (persisted; effects wired in M5)
+    // MARK: Keep Awake countdown
+    // Ticks only while a timed session is active — and during keep-awake the Mac
+    // is held awake anyway, so a slow timer here costs nothing meaningful.
 
-    func setReverseEnabled(_ v: Bool) {
-        reverseEnabled = v
-        Defaults.reverseEnabled = v
-        if v {
-            if !permissions.allGranted { permissions.requestMissing() }
-            permissions.startMonitoring()   // picks up a later grant or revocation
+    private func startCountdown() {
+        stopCountdown()
+        updateRemainingMinutes()
+        countdownTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                guard let self, !Task.isCancelled else { return }
+                self.updateRemainingMinutes()
+            }
+        }
+    }
+
+    private func stopCountdown() {
+        countdownTask?.cancel()
+        countdownTask = nil
+    }
+
+    private func updateRemainingMinutes() {
+        guard let expiry = keepAwakeExpiry else { keepAwakeRemainingMinutes = nil; return }
+        let remaining = expiry.timeIntervalSinceNow
+        let minutes = remaining > 0 ? Int((remaining / 60).rounded(.up)) : 0
+        if keepAwakeRemainingMinutes != minutes { keepAwakeRemainingMinutes = minutes }
+    }
+
+    /// "Keep Awake", or "Keep Awake — 1 hr 29 min left" during a timed session.
+    var keepAwakeMenuLabel: String {
+        guard let total = keepAwakeRemainingMinutes, total > 0 else { return "Keep Awake" }
+        let hours = total / 60
+        let minutes = total % 60
+        let time: String
+        if hours == 0 {
+            time = "\(minutes) min"
+        } else if minutes == 0 {
+            time = "\(hours) hr"
+        } else {
+            time = "\(hours) hr \(minutes) min"
+        }
+        return "Keep Awake — \(time) left"
+    }
+
+    // MARK: Scroll intent (persisted)
+
+    func setReverseMouse(_ v: Bool) {
+        reverseMouse = v
+        Defaults.reverseMouse = v
+        reverseSettingsChanged()
+    }
+
+    func setReverseTrackpad(_ v: Bool) {
+        reverseTrackpad = v
+        Defaults.reverseTrackpad = v
+        reverseSettingsChanged()
+    }
+
+    /// Common handling after either reverse toggle changes: request Accessibility
+    /// the first time a source is enabled, watch for the grant until it lands, and
+    /// (re)configure the tap.
+    private func reverseSettingsChanged() {
+        if anyReverseEnabled {
+            if !permissions.accessibilityGranted {
+                permissions.requestAccessibility()   // system prompt
+                permissions.startMonitoring()         // watch only until it lands
+            }
         } else {
             permissions.stopMonitoring()
         }
         applyScrollConfig()
     }
-    func setReverseMouse(_ v: Bool) {
-        reverseMouse = v
-        Defaults.reverseMouse = v
-        applyScrollConfig()
-    }
-    func setReverseTrackpad(_ v: Bool) {
-        reverseTrackpad = v
-        Defaults.reverseTrackpad = v
-        applyScrollConfig()
+
+    /// Open Accessibility settings and resume watching for the grant (used by the
+    /// menu's "Grant Accessibility Access…" action — the reliable path after the
+    /// one-shot system prompt has already been shown).
+    func requestScrollPermissions() {
+        permissions.openAccessibilitySettings()
+        permissions.startMonitoring()
     }
 
     /// Push current settings into the tap and start/stop it as appropriate.
     private func applyScrollConfig() {
         scrollTap.config = ReverseConfig(
-            enabled: reverseEnabled,
+            enabled: anyReverseEnabled,
             reverseMouse: reverseMouse,
             reverseTrackpad: reverseTrackpad
         )
@@ -137,20 +218,26 @@ final class AppModel {
     }
 
     private func updateScrollTapRunning() {
-        if reverseEnabled && permissionsOK {
+        if anyReverseEnabled && permissionsOK {
             scrollTap.start()
         } else {
             scrollTap.stop()
         }
     }
 
-    /// Rebuild the taps after waking from sleep. We deliberately do *not* force
-    /// `reverseEnabled` off on permission revocation: the user's intent is kept,
-    /// the tap is stopped (via `onChange`), the menu shows "Grant Scroll
-    /// Permissions…", and reversal auto-resumes once the grant returns.
+    /// Rebuild the taps after waking from sleep. We deliberately do *not* turn the
+    /// reverse toggles off on permission revocation: the user's intent is kept,
+    /// the tap is stopped (via `onChange`), the menu shows "Grant Accessibility
+    /// Access…", and reversal auto-resumes once the grant returns.
     func handleWake() {
         permissions.refresh()
         scrollTap.rebuildAfterWake()
+    }
+
+    // MARK: Updates
+
+    func checkForUpdates() {
+        updateChecker.checkForUpdates()
     }
 
     // MARK: System intent
@@ -174,7 +261,7 @@ final class AppModel {
     // MARK: Menu-bar glyph
 
     /// Reflects the keep-awake mode so the user can see at a glance that sleep is
-    /// being held. (Proper custom artwork lands in M7.)
+    /// being held.
     var menuBarSymbolName: String {
         isKeepingAwake ? "computermouse.fill" : "computermouse"
     }

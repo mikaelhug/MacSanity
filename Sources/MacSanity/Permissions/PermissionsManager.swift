@@ -1,47 +1,39 @@
 import AppKit
 import ApplicationServices
-import IOKit.hid
 
-/// Tracks the two TCC permissions the scroll feature needs:
-///   • Accessibility   — to create an *active* event tap that modifies events.
-///   • Input Monitoring — to observe input events at the session level.
-/// Keep Awake needs neither, so it always works regardless of this state.
+/// Tracks the single TCC permission the scroll feature needs: **Accessibility**,
+/// which lets us create an event tap that observes and modifies scroll events.
+///
+/// Mouse/scroll/gesture taps do *not* require Input Monitoring — that permission
+/// gates keyboard monitoring — so we don't ask for it. Keep Awake needs nothing.
 @MainActor
 @Observable
 final class PermissionsManager {
     private(set) var accessibilityGranted = false
-    private(set) var inputMonitoringGranted = false
 
-    /// Both permissions present — the precondition for running the scroll tap.
-    var allGranted: Bool { accessibilityGranted && inputMonitoringGranted }
-
-    /// Invoked whenever the grant state actually changes (e.g. the user grants or
-    /// revokes a permission). The model uses this to start/stop the scroll tap.
+    /// Invoked whenever the grant state actually changes (granted or revoked).
+    /// The model uses this to start/stop the scroll tap.
     var onChange: (() -> Void)?
 
-    /// macOS only ever shows the Input Monitoring prompt once per app; after that
-    /// a request silently does nothing, so we remember and deep-link instead.
-    private let didRequestInputMonitoringKey = "didRequestInputMonitoring"
     private var monitorTask: Task<Void, Never>?
 
     init() {
         refresh()
     }
 
-    /// Re-read the current grant state (cheap, no prompts). Fires `onChange` only
-    /// when something actually flipped.
+    /// Re-read the current grant state (cheap, no prompt). Fires `onChange` only
+    /// when it actually flips.
     func refresh() {
-        let accessibility = AXIsProcessTrusted()
-        let inputMonitoring = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
-        guard accessibility != accessibilityGranted || inputMonitoring != inputMonitoringGranted else { return }
-        accessibilityGranted = accessibility
-        inputMonitoringGranted = inputMonitoring
+        let trusted = AXIsProcessTrusted()
+        guard trusted != accessibilityGranted else { return }
+        accessibilityGranted = trusted
         onChange?()
     }
 
     // MARK: Requests
 
-    /// Show the system Accessibility prompt (first time) and surface the pane.
+    /// Show the system Accessibility prompt. A no-op (returns true, no prompt) if
+    /// the process is already trusted.
     func requestAccessibility() {
         // `kAXTrustedCheckOptionPrompt` is imported as a non-concurrency-safe
         // global; its value is the stable string "AXTrustedCheckOptionPrompt".
@@ -49,57 +41,30 @@ final class PermissionsManager {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    /// Request Input Monitoring. The OS prompts only once ever; thereafter we
-    /// deep-link to System Settings so the user can grant it manually.
-    func requestInputMonitoring() {
-        let defaults = UserDefaults.standard
-        if defaults.bool(forKey: didRequestInputMonitoringKey) {
-            openSettings(.inputMonitoring)
-        } else {
-            defaults.set(true, forKey: didRequestInputMonitoringKey)
-            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
-        }
-    }
-
-    /// Request whatever is still missing, in one call.
-    func requestMissing() {
-        if !accessibilityGranted { requestAccessibility() }
-        if !inputMonitoringGranted { requestInputMonitoring() }
-    }
-
-    // MARK: System Settings deep links
-
-    enum Pane {
-        case accessibility, inputMonitoring
-        var urlString: String {
-            switch self {
-            case .accessibility:
-                return "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-            case .inputMonitoring:
-                return "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
-            }
-        }
-    }
-
-    func openSettings(_ pane: Pane) {
-        if let url = URL(string: pane.urlString) {
+    /// Deep-link straight to the Accessibility pane (the reliable path once the
+    /// one-shot system prompt has already been shown).
+    func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
     }
 
     // MARK: Monitoring
 
-    /// While the scroll feature is enabled, poll once a second so that a grant
-    /// (e.g. the user flipping the System Settings switch) starts the tap, and a
-    /// revocation stops it — both via `onChange`. Cheap; only runs while needed.
+    /// Poll *only while the grant is pending* — to catch the user flipping the
+    /// System Settings switch — then stop. Nothing to watch once granted, so the
+    /// process isn't kept awake in steady state. Capped so an "enabled but never
+    /// granted" state can't poll forever; the menu's grant action restarts it.
     func startMonitoring() {
-        guard monitorTask == nil else { return }
+        guard monitorTask == nil, !accessibilityGranted else { return }
         monitorTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
+            for _ in 0..<240 {                       // ~120s at 500ms
+                try? await Task.sleep(for: .milliseconds(500))
                 guard let self, !Task.isCancelled else { return }
                 self.refresh()
+                if self.accessibilityGranted { break }
             }
+            self?.monitorTask = nil
         }
     }
 

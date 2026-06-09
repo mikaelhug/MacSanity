@@ -6,37 +6,41 @@ struct MenuContent: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        Toggle("Keep Awake", isOn: bind(model.isKeepingAwake, model.setKeepAwake))
+        Toggle(isOn: bind(model.isKeepingAwake, model.setKeepAwake)) {
+            Text(model.keepAwakeMenuLabel)
+        }
         Menu("Keep Awake For") {
-            durationButton("30 Minutes", .minutes(30))
-            durationButton("1 Hour", .minutes(60))
-            durationButton("Until Turned Off", .indefinite)
+            durationButton("30 Minutes", .interval(30 * 60))
+            durationButton("1 Hour", .interval(60 * 60))
+            Button("Custom…") {
+                if let seconds = CustomDurationPrompt.run() {
+                    model.startKeepAwake(.interval(seconds))
+                }
+            }
         }
 
         Divider()
 
-        Toggle("Reverse Scrolling", isOn: bind(model.reverseEnabled, model.setReverseEnabled))
         Toggle("Reverse Mouse", isOn: bind(model.reverseMouse, model.setReverseMouse))
-            .disabled(!model.reverseEnabled)
         Toggle("Reverse Trackpad", isOn: bind(model.reverseTrackpad, model.setReverseTrackpad))
-            .disabled(!model.reverseEnabled)
-
-        if model.reverseEnabled && !model.permissionsOK {
-            Button("Grant Scroll Permissions…") {
-                model.permissions.requestMissing()
+        if model.anyReverseEnabled && !model.permissionsOK {
+            Button("Grant Accessibility Access…") {
+                model.requestScrollPermissions()
             }
         }
 
         Divider()
 
         Toggle("Start at Login", isOn: bind(model.startAtLogin, model.setStartAtLogin))
-        SettingsLink {
-            Text("Settings…")
+        Button("Hide Menu Bar Icon") {
+            model.setHideIcon(true)
         }
-        .keyboardShortcut(",")
 
         Divider()
 
+        Button("Check for Updates…") {
+            model.checkForUpdates()
+        }
         Button("Quit MacSanity") {
             NSApplication.shared.terminate(nil)
         }

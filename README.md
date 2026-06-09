@@ -7,8 +7,8 @@ A lean macOS menu-bar app that does two things well:
 2. **Keep Awake** — prevents your Mac from sleeping while it's on, optionally for a
    set duration.
 
-It's a modern Swift rewrite that replaces two aging Objective-C utilities
-(Scroll Reverser and Caffeine) with a single ~17 MB agent.
+Written in modern Swift, it's a single ~16 MB agent — no Dock icon, and no CPU
+use when idle.
 
 ## Requirements
 
@@ -37,13 +37,28 @@ swift run ClassifierCheck # run the mouse-vs-trackpad classifier checks
 ## Permissions
 
 - **Keep Awake** needs no permissions and works immediately.
-- **Reverse Scrolling** needs two TCC permissions (System Settings → Privacy & Security):
-  - **Accessibility** — to modify scroll events.
-  - **Input Monitoring** — to observe input at the session level.
+- **Reverse Scrolling** needs one TCC permission: **Accessibility** (System
+  Settings → Privacy & Security → Accessibility). Mouse/scroll event taps require
+  only Accessibility — Input Monitoring gates *keyboard* monitoring, which this
+  app never does.
 
-  Turn on *Reverse Scrolling* from the menu and MacSanity will prompt for, and
-  deep-link you to, whatever is missing. Once both are granted, reversal starts
-  automatically (and resumes by itself if a permission is later re-granted).
+  Turn on *Reverse Mouse* (or *Reverse Trackpad*) from the menu and MacSanity
+  prompts for it. Once granted, reversal starts automatically (and resumes by
+  itself if the permission is later re-granted).
+
+## Updates
+
+**Check for Updates…** in the menu queries the latest GitHub Release and compares
+its tag to the running app's version. If a newer one exists, **Update & Relaunch**
+downloads the `.zip`, swaps the new app over the running one (via a detached
+helper that waits for the app to quit), and relaunches it. If the app lives
+somewhere it can't write to, it falls back to revealing the download for a manual
+drag. It's manual — triggered only from the menu, no background polling.
+
+Releases are produced by pushing a `v#.#.#` tag (see the build workflow); the
+build stamps `CFBundleShortVersionString` from the tag, so the version comparison
+stays honest. For the updater to offer an update, the released tag must be higher
+than the version of the build you're running.
 
 ## How it works
 
@@ -63,7 +78,7 @@ Sources/
   CMacSanitySPI/   C shim: MSReverseScroll + the private IOHID/CGEvent SPIs
   MacSanityCore/   Pure logic (ScrollClassifier) — unit-checkable, no UI
   MacSanity/       The app: AppModel, MenuBarExtra UI, ScrollTap, KeepAwake,
-                   Permissions, Defaults, LaunchAtLogin, Settings
+                   Permissions, Defaults, LaunchAtLogin, UpdateChecker
   ClassifierCheck/ Standalone classifier checks (stands in for XCTest)
 ```
 
@@ -95,10 +110,3 @@ xcrun stapler staple build/MacSanity.app
 `Scripts/build-app.sh` ad-hoc signs for local use; swap in the steps above for
 release. (Ad-hoc signatures change on every build, so the TCC permission grants
 must be re-approved after each local rebuild — expected during development.)
-
-## Credits
-
-The scroll-reversal mechanism and the private SPI declarations are derived from
-[Scroll Reverser](https://pilotmoon.com/scrollreverser/) (Apache-2.0); the
-keep-awake approach is inspired by Caffeine. MacSanity keeps only the core of
-each, rebuilt in modern Swift.
