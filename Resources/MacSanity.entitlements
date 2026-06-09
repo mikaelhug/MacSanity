@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  MacSanity is intentionally NON-sandboxed: a session-level active CGEventTap
+	  and the IOHID SPIs are incompatible with the App Sandbox. The
+	  `com.apple.security.app-sandbox` key is deliberately absent. Access to scroll
+	  events is gated by user-granted TCC permissions (Accessibility + Input
+	  Monitoring), not by entitlements.
+	-->
+</dict>
+</plist>

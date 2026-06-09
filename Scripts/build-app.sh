@@ -1,0 +1,49 @@
+#!/bin/bash
+#
+# Build MacSanity with SwiftPM and assemble a runnable .app bundle.
+#
+# Usage:
+#   Scripts/build-app.sh [debug|release]   (default: release)
+#
+# Produces: build/MacSanity.app  (ad-hoc signed for local use)
+#
+# For distribution, replace the ad-hoc signature with a Developer ID identity and
+# enable the hardened runtime — see README.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+CONFIG="${1:-release}"
+APP_NAME="MacSanity"
+BUNDLE_ID="com.macsanity.app"
+
+echo "==> swift build ($CONFIG)"
+swift build -c "$CONFIG"
+
+BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+BIN="$BIN_DIR/$APP_NAME"
+if [[ ! -x "$BIN" ]]; then
+	echo "error: built binary not found at $BIN" >&2
+	exit 1
+fi
+
+APP="$ROOT/build/$APP_NAME.app"
+echo "==> Assembling $APP"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
+cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+echo "==> Code signing (ad-hoc)"
+codesign --force --sign - \
+	--identifier "$BUNDLE_ID" \
+	--entitlements "$ROOT/Resources/MacSanity.entitlements" \
+	"$APP"
+
+echo "==> Verifying signature"
+codesign --verify --verbose=2 "$APP"
+
+echo "==> Done: $APP"
