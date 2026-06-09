@@ -1,0 +1,48 @@
+name: Build
+
+# Build (and publish) a release whenever a version tag like v1.2.3 is pushed.
+# Tags aren't tied to a branch, so push the tag on the commit you want released
+# (i.e. the tip of main): `git tag v1.2.3 && git push origin v1.2.3`.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write   # needed to create the GitHub Release
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version || true
+
+      - name: Run classifier checks
+        run: swift run ClassifierCheck
+
+      - name: Build app bundle
+        run: ./Scripts/build-app.sh release
+
+      - name: Package
+        run: ditto -c -k --keepParent build/MacSanity.app "build/MacSanity-${GITHUB_REF_NAME}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacSanity-${{ github.ref_name }}
+          path: build/MacSanity-*.zip
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            build/MacSanity-*.zip \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
