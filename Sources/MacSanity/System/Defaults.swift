@@ -8,14 +8,16 @@ enum Defaults {
     private enum Key {
         static let reverseMouse = "reverseMouse"
         static let reverseTrackpad = "reverseTrackpad"
+        static let safariNavButtons = "safariNavButtons"
         static let hideIcon = "hideIcon"
     }
 
-    /// Seed the factory defaults: both reverse toggles off until the user opts in.
+    /// Seed the factory defaults: all input features off until the user opts in.
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             Key.reverseMouse: false,
             Key.reverseTrackpad: false,
+            Key.safariNavButtons: false,
             Key.hideIcon: false,
         ])
     }
@@ -27,6 +29,10 @@ enum Defaults {
     static var reverseTrackpad: Bool {
         get { UserDefaults.standard.bool(forKey: Key.reverseTrackpad) }
         set { UserDefaults.standard.set(newValue, forKey: Key.reverseTrackpad) }
+    }
+    static var safariNavButtons: Bool {
+        get { UserDefaults.standard.bool(forKey: Key.safariNavButtons) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.safariNavButtons) }
     }
     static var hideIcon: Bool {
         get { UserDefaults.standard.bool(forKey: Key.hideIcon) }

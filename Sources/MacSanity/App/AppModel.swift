@@ -29,6 +29,10 @@ final class AppModel {
     /// The tap should run when either source is being reversed.
     var anyReverseEnabled: Bool { reverseMouse || reverseTrackpad }
 
+    // MARK: Safari navigation (persisted)
+    /// Map the mouse back/forward side buttons to Safari Back/Forward.
+    private(set) var safariNavButtons = false
+
     // MARK: System
     /// Mirrors `SMAppService` state; the OS is the source of truth.
     private(set) var startAtLogin = false
@@ -40,11 +44,16 @@ final class AppModel {
     // MARK: Controllers
     private let keepAwake = KeepAwakeController()
     private let scrollTap = ScrollTap()
+    private let safariNav = SafariNavController()
     private let updateChecker = UpdateChecker()
     private let permissions = PermissionsManager()
 
-    /// Accessibility granted — the precondition for running the scroll tap.
+    /// Accessibility granted — the precondition for running the event taps.
     var permissionsOK: Bool { permissions.accessibilityGranted }
+    /// A tap feature is enabled but Accessibility isn't granted yet.
+    var needsAccessibilityGrant: Bool {
+        (anyReverseEnabled || safariNavButtons) && !permissionsOK
+    }
 
     private init() {}
 
@@ -58,12 +67,13 @@ final class AppModel {
         Defaults.registerDefaults()
         reverseMouse = Defaults.reverseMouse
         reverseTrackpad = Defaults.reverseTrackpad
+        safariNavButtons = Defaults.safariNavButtons
         hideIcon = Defaults.hideIcon
         startAtLogin = LaunchAtLogin.isEnabled
 
-        // Start/stop the tap whenever permissions change (granted via the system
+        // Start/stop the taps whenever permissions change (granted via the system
         // prompt, or revoked at runtime).
-        permissions.onChange = { [weak self] in self?.updateScrollTapRunning() }
+        permissions.onChange = { [weak self] in self?.reconcileTaps() }
         permissions.refresh()
 
         // Rebuild the (potentially dead) taps after the Mac wakes from sleep.
@@ -84,10 +94,12 @@ final class AppModel {
             MainActor.assumeIsolated { self?.permissions.refresh() }
         }
 
-        // If reversal was left on from a previous session, watch for a grant only
-        // if one is still pending; otherwise the tap just starts immediately.
-        if anyReverseEnabled && !permissions.accessibilityGranted { permissions.startMonitoring() }
-        applyScrollConfig()
+        // If a tap feature was left on from a previous session, watch for a grant
+        // only if one is still pending; otherwise the taps just start immediately.
+        if (anyReverseEnabled || safariNavButtons) && !permissions.accessibilityGranted {
+            permissions.startMonitoring()
+        }
+        reconcileTaps()
     }
 
     // MARK: Keep Awake intent
@@ -170,25 +182,31 @@ final class AppModel {
         return "Keep Awake — \(time) left"
     }
 
-    // MARK: Scroll intent (persisted)
+    // MARK: Input feature intent (persisted)
 
     func setReverseMouse(_ v: Bool) {
         reverseMouse = v
         Defaults.reverseMouse = v
-        reverseSettingsChanged()
+        featureSettingsChanged()
     }
 
     func setReverseTrackpad(_ v: Bool) {
         reverseTrackpad = v
         Defaults.reverseTrackpad = v
-        reverseSettingsChanged()
+        featureSettingsChanged()
     }
 
-    /// Common handling after either reverse toggle changes: request Accessibility
-    /// the first time a source is enabled, watch for the grant until it lands, and
-    /// (re)configure the tap.
-    private func reverseSettingsChanged() {
-        if anyReverseEnabled {
+    func setSafariNavButtons(_ v: Bool) {
+        safariNavButtons = v
+        Defaults.safariNavButtons = v
+        featureSettingsChanged()
+    }
+
+    /// Common handling after any tap feature toggles: request Accessibility the
+    /// first time one is enabled, watch for the grant until it lands, and
+    /// reconcile the taps.
+    private func featureSettingsChanged() {
+        if anyReverseEnabled || safariNavButtons {
             if !permissions.accessibilityGranted {
                 permissions.requestAccessibility()   // system prompt
                 permissions.startMonitoring()         // watch only until it lands
@@ -196,33 +214,27 @@ final class AppModel {
         } else {
             permissions.stopMonitoring()
         }
-        applyScrollConfig()
+        reconcileTaps()
     }
 
     /// Open Accessibility settings and resume watching for the grant (used by the
     /// menu's "Grant Accessibility Access…" action — the reliable path after the
     /// one-shot system prompt has already been shown).
-    func requestScrollPermissions() {
+    func requestAccessibilityGrant() {
         permissions.openAccessibilitySettings()
         permissions.startMonitoring()
     }
 
-    /// Push current settings into the tap and start/stop it as appropriate.
-    private func applyScrollConfig() {
+    /// Push current settings into the taps and start/stop each as appropriate.
+    private func reconcileTaps() {
         scrollTap.config = ReverseConfig(
             enabled: anyReverseEnabled,
             reverseMouse: reverseMouse,
             reverseTrackpad: reverseTrackpad
         )
-        updateScrollTapRunning()
-    }
-
-    private func updateScrollTapRunning() {
-        if anyReverseEnabled && permissionsOK {
-            scrollTap.start()
-        } else {
-            scrollTap.stop()
-        }
+        let permitted = permissionsOK
+        if anyReverseEnabled && permitted { scrollTap.start() } else { scrollTap.stop() }
+        if safariNavButtons && permitted { safariNav.start() } else { safariNav.stop() }
     }
 
     /// Rebuild the taps after waking from sleep. We deliberately do *not* turn the
@@ -232,6 +244,7 @@ final class AppModel {
     func handleWake() {
         permissions.refresh()
         scrollTap.rebuildAfterWake()
+        safariNav.rebuildAfterWake()
     }
 
     // MARK: Updates

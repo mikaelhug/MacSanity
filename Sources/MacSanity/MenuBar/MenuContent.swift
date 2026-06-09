@@ -23,9 +23,10 @@ struct MenuContent: View {
 
         Toggle("Reverse Mouse", isOn: bind(model.reverseMouse, model.setReverseMouse))
         Toggle("Reverse Trackpad", isOn: bind(model.reverseTrackpad, model.setReverseTrackpad))
-        if model.anyReverseEnabled && !model.permissionsOK {
+        Toggle("Safari Back/Forward Buttons", isOn: bind(model.safariNavButtons, model.setSafariNavButtons))
+        if model.needsAccessibilityGrant {
             Button("Grant Accessibility Access…") {
-                model.requestScrollPermissions()
+                model.requestAccessibilityGrant()
             }
         }
 

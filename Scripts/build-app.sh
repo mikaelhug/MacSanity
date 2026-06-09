@@ -48,11 +48,24 @@ if [[ -n "$VERSION" ]]; then
 	echo "==> Version $VERSION"
 fi
 
-echo "==> Code signing (ad-hoc)"
-codesign --force --sign - \
-	--identifier "$BUNDLE_ID" \
-	--entitlements "$ROOT/Resources/MacSanity.entitlements" \
-	"$APP"
+# Sign with $MACSANITY_SIGN_IDENTITY when set (a stable identity keeps the
+# Accessibility grant across rebuilds/upgrades); otherwise ad-hoc for quick local
+# use. See Scripts/make-signing-cert.sh.
+IDENTITY="${MACSANITY_SIGN_IDENTITY:-}"
+if [[ -n "$IDENTITY" ]]; then
+	echo "==> Code signing with identity: $IDENTITY"
+	codesign --force --sign "$IDENTITY" \
+		--identifier "$BUNDLE_ID" \
+		--entitlements "$ROOT/Resources/MacSanity.entitlements" \
+		--timestamp=none \
+		"$APP"
+else
+	echo "==> Code signing (ad-hoc)"
+	codesign --force --sign - \
+		--identifier "$BUNDLE_ID" \
+		--entitlements "$ROOT/Resources/MacSanity.entitlements" \
+		"$APP"
+fi
 
 echo "==> Verifying signature"
 codesign --verify --verbose=2 "$APP"

@@ -26,6 +26,30 @@ jobs:
       - name: Run classifier checks
         run: swift run ClassifierCheck
 
+      # Import the stable signing cert (if the secrets are set) so released builds
+      # carry the same identity as local ones — that's what lets the Accessibility
+      # grant survive auto-updates. Without the secrets, the build is ad-hoc signed.
+      - name: Import signing certificate
+        env:
+          CERT_P12: ${{ secrets.MACSANITY_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACSANITY_CERT_PASSWORD }}
+        run: |
+          if [ -z "${CERT_P12:-}" ]; then
+            echo "No MACSANITY_CERT_P12 secret — release will be ad-hoc signed."
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KPW="$(uuidgen)"
+          security create-keychain -p "$KPW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KPW" "$KEYCHAIN"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "MACSANITY_SIGN_IDENTITY=MacSanity Self-Signed" >> "$GITHUB_ENV"
+
       - name: Build app bundle
         run: ./Scripts/build-app.sh release
         env:
