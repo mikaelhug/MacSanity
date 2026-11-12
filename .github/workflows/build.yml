@@ -26,6 +26,9 @@ jobs:
       - name: Run classifier checks
         run: swift run ClassifierCheck
 
+      - name: Run DDC packet checks
+        run: swift run DDCCheck
+
       # Import the stable signing cert (if the secrets are set) so released builds
       # carry the same identity as local ones — that's what lets the Accessibility
       # grant survive auto-updates. Without the secrets, the build is ad-hoc signed.

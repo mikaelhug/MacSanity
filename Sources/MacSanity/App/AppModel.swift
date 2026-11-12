@@ -2,7 +2,7 @@ import AppKit
 import Observation
 
 /// The single source of truth for the whole app and the only writer of side
-/// effects. SwiftUI scenes read it; feature controllers are owned and driven by
+/// effects. The status menu reads it; feature controllers are owned and driven by
 /// it. Everything here runs on the main actor — the menu UI, the IOKit power
 /// assertion, and the event-tap run loop all live on the main thread.
 @MainActor
@@ -38,8 +38,12 @@ final class AppModel {
     private(set) var startAtLogin = false
     /// Whether the menu-bar icon is hidden. Re-shown by reopening the app.
     private(set) var hideIcon = false
-    /// Convenience for `MenuBarExtra(isInserted:)`.
+    /// Whether the status item should be in the menu bar.
     var showIcon: Bool { !hideIcon }
+
+    // MARK: External display brightness (DDC/CI)
+    /// Hardware brightness sliders for DDC-capable monitors. Observable on its own.
+    let brightness = BrightnessController()
 
     // MARK: Controllers
     private let keepAwake = KeepAwakeController()
@@ -100,6 +104,9 @@ final class AppModel {
             permissions.startMonitoring()
         }
         reconcileTaps()
+
+        // Find DDC-capable monitors (needs no permissions).
+        brightness.start()
     }
 
     // MARK: Keep Awake intent
@@ -245,6 +252,7 @@ final class AppModel {
         permissions.refresh()
         scrollTap.rebuildAfterWake()
         safariNav.rebuildAfterWake()
+        brightness.handleWake()
     }
 
     // MARK: Updates

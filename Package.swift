@@ -9,7 +9,8 @@ let package = Package(
         // These symbols live in CoreGraphics / IOKit but are absent from the public SDK headers.
         .target(name: "CMacSanitySPI"),
 
-        // Pure, platform-independent logic (the mouse-vs-trackpad classifier),
+        // Pure, platform-independent logic (the mouse-vs-trackpad classifier and the
+        // DDC/CI packet codec),
         // split out so the test target links it without pulling in the GUI app.
         .target(name: "MacSanityCore"),
 
@@ -31,6 +32,12 @@ let package = Package(
         // does the same job and exits non-zero on failure.)
         .executableTarget(
             name: "ClassifierCheck",
+            dependencies: ["MacSanityCore"]
+        ),
+
+        // Pure-logic checks for the DDC/CI packet encoder/parser.
+        .executableTarget(
+            name: "DDCCheck",
             dependencies: ["MacSanityCore"]
         ),
     ]

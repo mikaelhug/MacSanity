@@ -1,6 +1,6 @@
 # MacSanity
 
-A lean macOS menu-bar app that does three small things well:
+A lean macOS menu-bar app that does four small things well:
 
 1. **Reverse scrolling** — reverses the scroll direction of attached **mice** while
    leaving the **trackpad** scrolling natural.
@@ -8,6 +8,9 @@ A lean macOS menu-bar app that does three small things well:
    set duration.
 3. **Safari back/forward buttons** — makes a mouse's back/forward side buttons
    navigate Safari (which ignores them natively), only while Safari is frontmost.
+4. **External monitor brightness** — a hardware brightness slider in the menu for
+   each connected monitor that supports **DDC/CI**, added and removed automatically
+   as monitors come and go. Real backlight control only — never software dimming.
 
 Written in modern Swift, it's a single ~16 MB agent — no Dock icon, and no CPU
 use when idle.
@@ -34,11 +37,12 @@ For day-to-day development you can also just use SwiftPM directly:
 ```sh
 swift build              # compile everything
 swift run ClassifierCheck # run the mouse-vs-trackpad classifier checks
+swift run DDCCheck        # run the DDC/CI packet encode/parse checks
 ```
 
 ## Permissions
 
-- **Keep Awake** needs no permissions and works immediately.
+- **Keep Awake** and **monitor brightness** need no permissions and work immediately.
 - **Reverse Scrolling** and **Safari back/forward buttons** need one TCC
   permission: **Accessibility** (System Settings → Privacy & Security →
   Accessibility). These mouse event taps require only Accessibility — Input
@@ -47,6 +51,30 @@ swift run ClassifierCheck # run the mouse-vs-trackpad classifier checks
   Turn either feature on from the menu and MacSanity prompts for it. Once granted,
   it starts automatically (and resumes by itself if the permission is later
   re-granted).
+
+## External monitor brightness (DDC/CI)
+
+MacSanity changes a monitor's **actual backlight** over DDC/CI — the same channel
+the monitor's own buttons and on-screen menu control. There is no gamma, overlay
+or any other software dimming, ever.
+
+- **Automatic:** at launch, on plug/unplug, and after wake, each external display
+  is asked for its current brightness (VCP `0x10`). Any monitor that answers gets a
+  slider at the top of the menu, set to its real value. Monitors without DDC get
+  nothing. Opening the menu re-reads the value, so changes made with the
+  monitor's own buttons show up.
+- **Write-only monitors:** a few monitors accept brightness commands but never
+  answer reads. A DDC write gives no feedback, so MacSanity can't detect them on its
+  own. They're listed under **Other Displays**, where **Enable Brightness Slider
+  (Unverified)** adds a slider. Nothing is sent until you move it; if moving it
+  does nothing, turn it off again.
+
+**What works** (Apple Silicon): USB-C / Thunderbolt (DP Alt-mode), DisplayPort, and
+the built-in HDMI port on most current Macs — provided DDC/CI is enabled in the
+monitor's own OSD (often on by default).
+**What doesn't:** DisplayLink adapters/docks, the built-in HDMI port of the M1 and
+entry M2 Mac mini, most KVM switches, some MST hubs, and Apple displays (Studio
+Display / Pro Display XDR use USB, not DDC). Intel Macs aren't supported.
 
 ## Updates
 
@@ -71,23 +99,26 @@ than the version of the build you're running.
 | Reversal write | `MSReverseScroll` (C) flips the CGEvent `Delta`/`FixedPt`/`Point` axes (Delta first, so macOS recomputes the rest) **and** the underlying `IOHIDEvent`. |
 | Keep Awake | A single held `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep)`, released on toggle-off or timer expiry. |
 | Safari nav buttons | An active tap on `otherMouseDown`/`Up`: while Safari is frontmost, side buttons 3/4 are swallowed and re-posted as ⌘← / ⌘→ (layout-independent). Other apps are untouched. |
+| Monitor brightness | DDC/CI over I²C via the private `IOAVService` API on each external display's `DCPAVServiceProxy`, paired with its `CGDirectDisplayID` through CoreDisplay's `IODisplayLocation`. One actor per monitor on its own serial queue; slider moves are coalesced so only the newest value is written. No polling. |
 | Launch at login | `SMAppService.mainApp`. |
-| Hidden hot path cost | The scroll callback is a C function pointer over plain scalars — no per-event `NSEvent`, no `UserDefaults` reads, no allocations. SwiftUI is never on the hot path. |
+| Hidden hot path cost | The scroll callback is a C function pointer over plain scalars — no per-event `NSEvent`, no `UserDefaults` reads, no allocations. The menu UI is never on the hot path. |
 
 ### Project layout
 
 ```
 Sources/
-  CMacSanitySPI/   C shim: MSReverseScroll + the private IOHID/CGEvent SPIs
-  MacSanityCore/   Pure logic (ScrollClassifier) — unit-checkable, no UI
-  MacSanity/       The app: AppModel, MenuBarExtra UI, ScrollTap, SafariNav,
-                   KeepAwake, Permissions, Defaults, LaunchAtLogin, UpdateChecker
+  CMacSanitySPI/   C shim: MSReverseScroll, DDC I2C transport + the private SPIs
+  MacSanityCore/   Pure logic (ScrollClassifier, DDCPacket) — unit-checkable, no UI
+  MacSanity/       The app: AppModel, AppKit status menu, Brightness (DDC),
+                   ScrollTap, SafariNav, KeepAwake, Permissions, Defaults,
+                   LaunchAtLogin, UpdateChecker
   ClassifierCheck/ Standalone classifier checks (stands in for XCTest)
+  DDCCheck/        Standalone DDC packet encode/parse checks
 ```
 
 `AppModel` (`@MainActor @Observable`) is the single source of truth and the only
-writer of side effects; the SwiftUI scenes read it and feature controllers are
-driven by it.
+writer of side effects; the AppKit status menu (`StatusMenuController`) reads it via
+Observation and feature controllers are driven by it.
 
 ## Distribution
 
