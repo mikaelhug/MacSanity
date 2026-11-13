@@ -135,22 +135,16 @@ final class UpdateChecker {
             return
         }
 
-        let pid = ProcessInfo.processInfo.processIdentifier
-        let dest = currentApp.path
-        let src = newApp.path
-        let script = """
-        while /bin/kill -0 \(pid) 2>/dev/null; do /bin/sleep 0.2; done
-        /usr/bin/ditto "\(src)" "\(dest).new" || exit 1
-        /bin/rm -rf "\(dest)"
-        /bin/mv "\(dest).new" "\(dest)"
-        /usr/bin/xattr -dr com.apple.quarantine "\(dest)" 2>/dev/null
-        /usr/bin/open "\(dest)"
-        """
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", script]
-        try process.run()       // detached — outlives our termination
-        NSApp.terminate(nil)
+        let dest = Shell.quote(currentApp.path)
+        let staged = Shell.quote(currentApp.path + ".new")
+        let src = Shell.quote(newApp.path)
+        try AppRelaunch.runAfterExit("""
+        /usr/bin/ditto \(src) \(staged) || exit 1
+        /bin/rm -rf \(dest)
+        /bin/mv \(staged) \(dest)
+        /usr/bin/xattr -dr com.apple.quarantine \(dest) 2>/dev/null
+        /usr/bin/open \(dest)
+        """)
     }
 
     /// Unzip with `ditto` off the main thread (its termination handler resumes us),

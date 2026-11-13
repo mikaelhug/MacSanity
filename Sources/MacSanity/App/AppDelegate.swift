@@ -5,8 +5,22 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusMenu: StatusMenuController?
+    private var cleanerOnly: CleanerWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if CleanerReport.isRequested { CleanerReport.runAndExit(); return }
+        if CleanerSelfTest.isRequested { CleanerSelfTest.runAndExit(); return }
+        // Developer aid: only the cleaner window (no status item, no event taps),
+        // so it can run next to an installed MacSanity. Quits when closed.
+        if ProcessInfo.processInfo.environment["MACSANITY_CLEANER_WINDOW"] == "1" {
+            cleanerOnly = CleanerWindowController()
+            cleanerOnly?.onClose = { NSApp.terminate(nil) }
+            cleanerOnly?.show()
+            if let dir = ProcessInfo.processInfo.environment["MACSANITY_CLEANER_SNAPSHOTS"] {
+                cleanerOnly?.snapshotSections(to: dir)
+            }
+            return
+        }
         // Only one MacSanity may run: two instances would each install an active
         // scroll tap (reversing every scroll twice = not at all), post Safari
         // ⌘←/⌘→ twice, and drive the same DDC buses concurrently. The updater
@@ -31,6 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// icon back, so hiding it can never lock the user out.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         AppModel.shared.revealIcon()
+        // While the cleaner is open the app has a Dock icon; clicking it should
+        // bring the cleaner window forward.
+        cleanerOnly?.show()
+        AppModel.shared.showCleanerIfOpen()
         return true
     }
 }

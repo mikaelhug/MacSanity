@@ -1,6 +1,6 @@
 # MacSanity
 
-A lean macOS menu-bar app that does four small things well:
+A lean macOS menu-bar app that does five things well:
 
 1. **Reverse scrolling** — reverses the scroll direction of attached **mice** while
    leaving the **trackpad** scrolling natural.
@@ -11,6 +11,10 @@ A lean macOS menu-bar app that does four small things well:
 4. **External monitor brightness** — a hardware brightness slider in the menu for
    each connected monitor that supports **DDC/CI**, added and removed automatically
    as monitors come and go. Real backlight control only — never software dimming.
+5. **Clean Up Mac** — finds where your disk space went and what can safely go:
+   build output, caches, temp files, coding-agent worktrees, OS update downloads,
+   leftovers of apps you removed, and apps you no longer use. Everything goes to
+   the Trash, so it can be put back.
 
 Written in modern Swift, it's a single ~16 MB agent — no Dock icon, and no CPU
 use when idle.
@@ -38,11 +42,24 @@ For day-to-day development you can also just use SwiftPM directly:
 swift build              # compile everything
 swift run ClassifierCheck # run the mouse-vs-trackpad classifier checks
 swift run DDCCheck        # run the DDC/CI packet encode/parse checks
+swift run CleanerCheck    # run the cleaner safety/matching checks
+
+# Cleaner developer aids (read-only unless noted):
+MACSANITY_CLEANER_REPORT=1 .build/debug/MacSanity    # print every finding, exit
+MACSANITY_CLEANER_SELFTEST=1 .build/debug/MacSanity  # exercise removal on a throwaway folder
+MACSANITY_CLEANER_WINDOW=1 .build/debug/MacSanity    # cleaner window only (no menu icon, no taps)
+MACSANITY_CLEANER_DRYRUN=1 …                          # log removals instead of moving anything
+# Full Disk Access can only be granted to the app bundle, not the bare binary:
+# use `open build/MacSanity.app` (signed with MACSANITY_SIGN_IDENTITY so the grant survives rebuilds).
 ```
 
 ## Permissions
 
 - **Keep Awake** and **monitor brightness** need no permissions and work immediately.
+- **Clean Up Mac** works without permissions, but sees more with **Full Disk Access**
+  (System Settings → Privacy & Security → Full Disk Access): the Trash, other apps'
+  containers, device backups. The cleaner shows a banner with a shortcut when it's
+  missing. Removing system-wide items asks for your admin password once.
 - **Reverse Scrolling** and **Safari back/forward buttons** need one TCC
   permission: **Accessibility** (System Settings → Privacy & Security →
   Accessibility). These mouse event taps require only Accessibility — Input
@@ -76,6 +93,46 @@ monitor's own OSD (often on by default).
 entry M2 Mac mini, most KVM switches, some MST hubs, and Apple displays (Studio
 Display / Pro Display XDR use USB, not DDC). Intel Macs aren't supported.
 
+## Clean Up Mac
+
+Open it from the menu (**Clean Up Mac…**). Nothing runs in the background: the
+cleaner scans only while its window is open, and frees everything when it closes.
+
+**Where did my space go?** The **Disk Map** walks the whole disk (hidden folders
+included) and shows every big folder, sorted by size, with how much of it is
+reclaimable. Its totals add up to what Finder reports, including the other APFS
+volumes and anything that couldn't be read.
+
+**What it finds**, each with what it is, why it's suggested, and what happens
+after removal:
+
+| Section | Examples |
+|---|---|
+| Temporary Files | Old items in `/tmp` and your temp folder; coding-agent session scratch folders whose session has ended |
+| Installers & Updates | macOS restore images and update downloads; `.dmg`/`.pkg` files of apps you already have |
+| Git Worktrees | Extra working copies (e.g. `.claude/worktrees/*`) — clean & merged ones are safe; uncommitted work is never preselected |
+| App Caches | `~/Library/Caches`, Electron/Chromium caches, old versions kept after updates, updater leftovers, old logs |
+| Developer | Xcode DerivedData, Go/npm/uv/pip/cargo/Gradle caches, old toolchain versions, Homebrew downloads |
+| Projects | `target`, `node_modules`, `.build`, `.venv`… of projects you haven't touched in a month |
+| App Leftovers | Settings, caches, containers of apps that are no longer installed |
+| Background Items | Login/startup items whose program was removed |
+| Unused Apps | Apps not opened for six months, with all their data |
+| Large & Old Files | Your big files and old downloads (never preselected) |
+| System | Installer receipts of removed apps, Time Machine local snapshots |
+
+**Safety.** Every finding is marked **Safe** (rebuilt automatically; preselected),
+**Review** or **Careful** (never preselected). A hard safety policy refuses
+anything outside known locations and protects personal and system data (iCloud,
+Keychains, Mail, Photos, Apple's own folders, credentials) — checked when listing
+and again right before every move. Leftover detection matches apps by bundle ID,
+internal names (VS Code keeps its data in "Code"), helpers and vendor folders, and
+ignores anything modified in the last 30 days. Apps are asked to quit before their
+files are moved.
+
+**Undo.** Items go to the Trash (with Finder's Put Back) and are recorded in
+**History**, where they can be put back. **Empty These Items from Trash** deletes
+only what MacSanity moved — never the rest of your Trash.
+
 ## Updates
 
 **Check for Updates…** in the menu queries the latest GitHub Release and compares
@@ -100,6 +157,8 @@ than the version of the build you're running.
 | Keep Awake | A single held `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep)`, released on toggle-off or timer expiry. |
 | Safari nav buttons | An active tap on `otherMouseDown`/`Up`: while Safari is frontmost, side buttons 3/4 are swallowed and re-posted as ⌘← / ⌘→ (layout-independent). Other apps are untouched. |
 | Monitor brightness | DDC/CI over I²C via the private `IOAVService` API on each external display's `DCPAVServiceProxy`, paired with its `CGDirectDisplayID` through CoreDisplay's `IODisplayLocation`. One actor per monitor on its own serial queue; slider moves are coalesced so only the newest value is written. No polling. |
+| Cleaner sizing | `getattrlistbulk` walk in C (`CMacSanityFS`): allocated bytes like `du`, hard links once, never follows symlinks or crosses volumes. One parallel walk of the Data volume feeds both the Disk Map and every detector. |
+| Cleaner removal | `NSWorkspace.recycle` (Trash + Put Back); tool caches via the tool's own command (`brew cleanup`, `go clean -modcache`, `xcrun simctl delete unavailable`); root-owned items in one `do shell script … with administrator privileges` batch built from quoted, policy-checked paths. |
 | Launch at login | `SMAppService.mainApp`. |
 | Hidden hot path cost | The scroll callback is a C function pointer over plain scalars — no per-event `NSEvent`, no `UserDefaults` reads, no allocations. The menu UI is never on the hot path. |
 
@@ -108,12 +167,15 @@ than the version of the build you're running.
 ```
 Sources/
   CMacSanitySPI/   C shim: MSReverseScroll, DDC I2C transport + the private SPIs
-  MacSanityCore/   Pure logic (ScrollClassifier, DDCPacket) — unit-checkable, no UI
+  CMacSanityFS/    C: fast getattrlistbulk directory sizing for the cleaner
+  MacSanityCore/   Pure logic (ScrollClassifier, DDCPacket, Cleaner: safety policy,
+                   orphan matching, versions, claims) — unit-checkable, no UI
   MacSanity/       The app: AppModel, AppKit status menu, Brightness (DDC),
-                   ScrollTap, SafariNav, KeepAwake, Permissions, Defaults,
-                   LaunchAtLogin, UpdateChecker
+                   Cleaner (Engine + SwiftUI window), ScrollTap, SafariNav,
+                   KeepAwake, Permissions, Defaults, LaunchAtLogin, UpdateChecker
   ClassifierCheck/ Standalone classifier checks (stands in for XCTest)
   DDCCheck/        Standalone DDC packet encode/parse checks
+  CleanerCheck/    Standalone cleaner logic checks
 ```
 
 `AppModel` (`@MainActor @Observable`) is the single source of truth and the only

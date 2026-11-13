@@ -255,6 +255,24 @@ final class AppModel {
         brightness.handleWake()
     }
 
+    // MARK: Cleaner
+
+    /// Created on first use; the window frees its scan results when closed.
+    @ObservationIgnored private lazy var cleaner: CleanerWindowController = {
+        cleanerCreated = true
+        return CleanerWindowController()
+    }()
+    @ObservationIgnored private var cleanerCreated = false
+
+    func openCleaner() {
+        cleaner.show()
+    }
+
+    /// Bring the cleaner window forward if it's open (doesn't open it).
+    func showCleanerIfOpen() {
+        if cleanerCreated, cleaner.isVisible { cleaner.show() }
+    }
+
     // MARK: Updates
 
     func checkForUpdates() {

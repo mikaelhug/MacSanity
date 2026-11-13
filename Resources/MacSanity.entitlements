@@ -9,6 +9,9 @@
 	  events is gated by user-granted TCC permissions (Accessibility + Input
 	  Monitoring), not by entitlements. DDC/CI brightness talks to the display
 	  coprocessor through IOAVService, which likewise needs no sandbox or TCC grant.
+	  The cleaner reads the whole disk (better with Full Disk Access, granted by
+	  the user in System Settings) and moves items to the Trash; system-wide items
+	  go through one standard admin password prompt, with no privileged helper.
 	-->
 </dict>
 </plist>

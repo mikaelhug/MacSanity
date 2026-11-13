@@ -133,6 +133,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(durationsItem)
         menu.addItem(.separator())
 
+        // Cleaner (on demand only — nothing runs until the window opens)
+        menu.addItem(item("Clean Up Mac…") { [model] in model.openCleaner() })
+        menu.addItem(.separator())
+
         // Input
         reverseMouseItem = item("Reverse Mouse") { [model] in model.setReverseMouse(!model.reverseMouse) }
         reverseTrackpadItem = item("Reverse Trackpad") { [model] in model.setReverseTrackpad(!model.reverseTrackpad) }

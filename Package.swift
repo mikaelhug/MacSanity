@@ -9,6 +9,9 @@ let package = Package(
         // These symbols live in CoreGraphics / IOKit but are absent from the public SDK headers.
         .target(name: "CMacSanitySPI"),
 
+        // Fast, safe recursive directory sizing (getattrlistbulk) for the cleaner.
+        .target(name: "CMacSanityFS"),
+
         // Pure, platform-independent logic (the mouse-vs-trackpad classifier and the
         // DDC/CI packet codec),
         // split out so the test target links it without pulling in the GUI app.
@@ -18,7 +21,7 @@ let package = Package(
         // plain Swift over C-callbacks and never touches the UI layer.
         .executableTarget(
             name: "MacSanity",
-            dependencies: ["CMacSanitySPI", "MacSanityCore"],
+            dependencies: ["CMacSanitySPI", "CMacSanityFS", "MacSanityCore"],
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreGraphics"),
@@ -32,6 +35,12 @@ let package = Package(
         // does the same job and exits non-zero on failure.)
         .executableTarget(
             name: "ClassifierCheck",
+            dependencies: ["MacSanityCore"]
+        ),
+
+        // Pure-logic checks for the cleaner (safety policy, orphan matching, …).
+        .executableTarget(
+            name: "CleanerCheck",
             dependencies: ["MacSanityCore"]
         ),
 
