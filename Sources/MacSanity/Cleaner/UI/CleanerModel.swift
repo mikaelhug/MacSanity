@@ -107,6 +107,9 @@ final class CleanerModel {
     private(set) var countsByCategory: [CleanerCategory: Int] = [:]
     /// Build tools running when the confirm sheet was opened.
     private(set) var busyTools: [String] = []
+    /// What the confirm sheet will clean: one category's selection, or (nil)
+    /// everything selected across all categories (the Overview).
+    private(set) var cleanScope: CleanerCategory?
 
     // Environment
     private(set) var fullDiskAccess = FullDiskAccess.isGranted
@@ -265,14 +268,36 @@ final class CleanerModel {
         selectedTotal = total
     }
 
-    /// Open the confirm sheet, capturing what's running at that moment.
-    func reviewAndClean() {
-        busyTools = Array(Set(selectedFindings.flatMap(\.blockingProcesses)).intersection(ProcessProbe.executableNames())).sorted()
+    /// Open the confirm sheet for one category's selection, or for everything
+    /// selected when `category` is nil, capturing what's running at that moment.
+    func reviewAndClean(in category: CleanerCategory? = nil) {
+        cleanScope = category
+        busyTools = Array(Set(toClean.flatMap(\.blockingProcesses)).intersection(ProcessProbe.executableNames())).sorted()
         showConfirm = true
     }
 
     var selectedFindings: [Finding] {
         result?.findings.filter { selection.contains($0.id) && $0.isRemovable } ?? []
+    }
+
+    func selectedFindings(in category: CleanerCategory) -> [Finding] {
+        selectedFindings.filter { $0.category == category }
+    }
+
+    /// The selected findings the confirm sheet acts on (respects `cleanScope`).
+    var toClean: [Finding] {
+        guard let cleanScope else { return selectedFindings }
+        return selectedFindings(in: cleanScope)
+    }
+
+    /// Effective bytes of `toClean`.
+    var toCleanTotal: Int64 {
+        cleanScope.map(selectedSize(in:)) ?? selectedTotal
+    }
+
+    /// Categories with something to clean in the current scope.
+    var toCleanCategories: [CleanerCategory] {
+        CleanerCategory.displayOrder.filter { (cleanScope == nil || $0 == cleanScope) && selectedSize(in: $0) > 0 }
     }
 
     var count: (selected: Int, total: Int) {
@@ -302,7 +327,7 @@ final class CleanerModel {
 
     /// Running apps among the selected findings that must quit first.
     var appsToQuit: [(bundleID: String, name: String)] {
-        let ids = Set(selectedFindings.flatMap(\.quitFirst))
+        let ids = Set(toClean.flatMap(\.quitFirst))
         return NSWorkspace.shared.runningApplications.compactMap { app in
             guard let id = app.bundleIdentifier, ids.contains(id) else { return nil }
             return (id, app.localizedName ?? id)
@@ -310,13 +335,13 @@ final class CleanerModel {
     }
 
     var commandsToRun: [String] {
-        selectedFindings.compactMap { f in
+        toClean.compactMap { f in
             if case .command(let argv, _) = f.action { return argv.joined(separator: " ") }
             return nil
         }
     }
 
-    var needsAdmin: Bool { selectedFindings.contains(where: \.needsAdmin) }
+    var needsAdmin: Bool { toClean.contains(where: \.needsAdmin) }
 
     func quit(_ bundleIDs: [String]) async {
         _ = await RunningApps.quit(bundleIDs)
@@ -327,8 +352,9 @@ final class CleanerModel {
         showConfirm = false
         phase = .cleaning
         status = "Moving to Trash"
-        let work = result.effectiveItems(for: Set(selectedFindings.map(\.id)))
-        let outcome = await Remover.perform(work, allSelected: selectedFindings, history: history)
+        let findings = toClean
+        let work = result.effectiveItems(for: Set(findings.map(\.id)))
+        let outcome = await Remover.perform(work, allSelected: findings, history: history)
         historyEntries = history.entries
         lastOutcome = outcome
         lastSessionFreed = nil

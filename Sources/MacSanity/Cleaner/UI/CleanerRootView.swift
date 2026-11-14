@@ -22,13 +22,19 @@ struct CleanerRootView: View {
                     }
                     .disabled(model.phase == .cleaning)
                 }
-                if model.section != .overview && model.phase == .ready && !model.selectedFindings.isEmpty {
-                    Button {
-                        model.reviewAndClean()
-                    } label: {
-                        Text("Clean \(Bytes.text(model.selectedTotal))")
+                // In a category pane, clean only what's checked in that pane.
+                if case .category(let c) = model.section, model.phase == .ready {
+                    let picked = model.selectedFindings(in: c)
+                    if !picked.isEmpty {
+                        Button {
+                            model.reviewAndClean(in: c)
+                        } label: {
+                            let size = model.selectedSize(in: c)
+                            Text("Clean " + (size > 0 ? Bytes.text(size) : picked.count == 1 ? "1 Item" : "\(picked.count) Items"))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Move the \(picked.count) selected in \(c.title) to the Trash")
                     }
-                    .buttonStyle(.borderedProminent)
                 }
             }
         }

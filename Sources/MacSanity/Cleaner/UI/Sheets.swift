@@ -6,12 +6,12 @@ struct ConfirmSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Move \(Bytes.format(model.selectedTotal)) to the Trash?").font(.title2.weight(.semibold))
+            Text(title).font(.title2.weight(.semibold))
             Text("You can put items back from the Trash or from History. Space is freed when the Trash is emptied.")
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(CleanerCategory.displayOrder.filter { model.selectedSize(in: $0) > 0 }, id: \.self) { c in
+                ForEach(model.toCleanCategories, id: \.self) { c in
                     HStack {
                         Label(c.title, systemImage: c.symbol)
                         Spacer()
@@ -22,7 +22,7 @@ struct ConfirmSheet: View {
             .padding(12)
             .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
 
-            let careful = model.selectedFindings.filter { $0.safety == .careful }
+            let careful = model.toClean.filter { $0.safety == .careful }
             if !careful.isEmpty {
                 warning("exclamationmark.triangle.fill", .red,
                         "\(careful.count) item(s) marked Careful are selected: " + careful.prefix(3).map(\.title).joined(separator: ", "))
@@ -65,6 +65,12 @@ struct ConfirmSheet: View {
         }
         .padding(24)
         .frame(width: 520)
+    }
+
+    private var title: String {
+        let n = model.toClean.count
+        let what = model.toCleanTotal > 0 ? Bytes.format(model.toCleanTotal) : (n == 1 ? "1 item" : "\(n) items")
+        return "Move \(what) to the Trash?"
     }
 
     private func warning(_ symbol: String, _ color: Color, _ text: String) -> some View {

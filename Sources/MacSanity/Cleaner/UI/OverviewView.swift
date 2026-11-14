@@ -37,7 +37,7 @@ struct OverviewView: View {
             Button {
                 model.reviewAndClean()
             } label: {
-                Text("Review & Clean").frame(minWidth: 160)
+                Text("Review & Clean All").frame(minWidth: 160)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
