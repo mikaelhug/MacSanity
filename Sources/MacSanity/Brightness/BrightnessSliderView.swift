@@ -51,14 +51,26 @@ final class BrightnessSliderView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// Reflect the model. Skipped mid-drag so a late DDC read can't yank the knob.
+    /// Reflect the model. The range is always applied; only the knob position is
+    /// held back while this slider is being dragged, so a late DDC read can't yank it.
+    ///
+    /// The range must never be skipped: the view is first built in
+    /// `menuNeedsUpdate`, while the click that opens the menu is still held down.
+    /// Skipping it then left NSSlider's default 0…1 range, so the slider could only
+    /// send brightness 0 or 1.
     func update(_ monitor: MonitorBrightness) {
         label.stringValue = monitor.verified ? monitor.name : "\(monitor.name) — unverified"
         slider.setAccessibilityLabel("\(monitor.name) brightness")
-        guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
+        if slider.minValue != 0 { slider.minValue = 0 }
         if slider.maxValue != Double(monitor.max) { slider.maxValue = Double(monitor.max) }
-        slider.minValue = 0
+        guard !isBeingDragged else { return }
         if slider.integerValue != monitor.value { slider.integerValue = monitor.value }
+    }
+
+    /// Mid-drag means the menu is on screen and the mouse is down. A view that is
+    /// not in a visible window (just created, or the menu is still opening) can't be.
+    private var isBeingDragged: Bool {
+        window?.isVisible == true && NSEvent.pressedMouseButtons & 1 != 0
     }
 
     @objc private func sliderMoved() {
